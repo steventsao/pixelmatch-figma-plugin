@@ -1,0 +1,544 @@
+<section style="margin: 20px">
+  <h2>Pixel-match your images</h2>
+  <div id="source-img" style="max-width: 400px">
+    <h3>1. Confirm the selected layer below</h3>
+  </div>
+    <h3>2. Load a target image in PNG</h3>
+    <input id="add-png" accept="image/png" onchange="addImage(this)" type="file" />
+  </div>
+  <div id="target-img" style="max-width:400px"></div>
+  <div>
+    <h3>3. Click "diff" and generate a comparison</h3>
+    <button class="button--primary" onclick="diff()">Diff</button>
+  </div>
+  <div
+    id="status"
+    class="section"
+    style="
+      display: grid;
+      grid-template-columns: 3fr 3fr;
+      width: 100%;
+      grid-gap: 1rem;
+    "
+  >
+    <!-- Each div preserve 50% -->
+    <div id="output-img" style="max-width: 400px">
+      <h3>target visual</h3>
+      <p id="pixel-difference"></p>
+    </div>
+  </div>
+  <button onclick="quit()">Quit</button>
+</section>
+<style>
+  /* Copied from https://github.com/thomas-lowry/figma-plugin-ds */
+  /* Vars */
+:root {
+  /* COLORS */
+  /* Accent */
+  --blue: #18a0fb;
+  --purple: #7b61ff;
+  --hot-pink: #ff00ff;
+  --green: #1bc47d;
+  --red: #f24822;
+  --yellow: #ffeb00;
+  /* Basic foreground */
+  --black: #000000;
+  --black8: rgba(0, 0, 0, .8);
+  --black8-opaque: #333333;
+  --black3: rgba(0, 0, 0, .3);
+  --black3-opaque: #B3B3B3;
+  --white: #ffffff;
+  --white8: rgba(255, 255, 255, .8);
+  --white4: rgba(255, 255, 255, .4);
+  /* Basic background */
+  --grey: #f0f0f0;
+  --silver: #e5e5e5;
+  --hud: #222222;
+  --toolbar: #2c2c2c;
+  /* Special */
+  --black1: rgba(0, 0, 0, .1);
+  --blue3: rgba(24, 145, 251, .3);
+  --purple4: rgba(123, 97, 255, .4);
+  --hover-fill: rgba(0, 0, 0, .06);
+  --selection-a: #daebf7;
+  --selection-b: #edf5fa;
+  --white2: rgba(255, 255, 255, .2);
+  /* TYPOGRAPHY */
+  /* Pos = positive applications (black on white) */
+  /* Neg = negative applications (white on black) */
+  /* Font stack */
+  --font-stack: 'Inter', sans-serif;
+  /* Font sizes */
+  --font-size-xsmall: 11px;
+  --font-size-small: 12px;
+  --font-size-large: 13px;
+  --font-size-xlarge: 14px;
+  /* Font weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+  /* Lineheight */
+  --font-line-height: 16px;
+  /* Use For xsmall, small font sizes */
+  --font-line-height-large: 24px;
+  /* Use For large, xlarge font sizes */
+  /* Letterspacing */
+  --font-letter-spacing-pos-xsmall: .005em;
+  --font-letter-spacing-neg-xsmall: .01em;
+  --font-letter-spacing-pos-small: 0;
+  --font-letter-spacing-neg-small: .005em;
+  --font-letter-spacing-pos-large: -.0025em;
+  --font-letter-spacing-neg-large: .0025em;
+  --font-letter-spacing-pos-xlarge: -.001em;
+  --font-letter-spacing-neg-xlarge: -.001em;
+  /* BORDER RADIUS */
+  --border-radius-small: 2px;
+  --border-radius-med: 5px;
+  --border-radius-large: 6px;
+  /* SHADOWS */
+  --shadow-hud: 0 5px 17px rgba(0, 0, 0, .2), 0 2px 7px rgba(0, 0, 0, .15);
+  --shadow-floating-window: 0 2px 14px rgba(0, 0, 0, .15);
+  /* SPACING + SIZING */
+  --size-xxxsmall: 4px;
+  --size-xxsmall: 8px;
+  --size-xsmall: 16px;
+  --size-small: 24px;
+  --size-medium: 32px;
+  --size-large: 40px;
+  --size-xlarge: 48px;
+  --size-xxlarge: 64px;
+  --size-xxxlarge: 80px;
+}
+
+/* Global styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  position: relative;
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/*  FONTS */
+@font-face {
+  font-family: 'Inter';
+  font-weight: 400;
+  font-style: normal;
+  src: url("https://rsms.me/inter/font-files/Inter-Regular.woff2?v=3.7") format("woff2"), url("https://rsms.me/inter/font-files/Inter-Regular.woff?v=3.7") format("woff");
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-weight: 500;
+  font-style: normal;
+  src: url("https://rsms.me/inter/font-files/Inter-Medium.woff2?v=3.7") format("woff2"), url("https://rsms.me/inter/font-files/Inter-Medium.woff2?v=3.7") format("woff");
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-weight: 600;
+  font-style: normal;
+  src: url("https://rsms.me/inter/font-files/Inter-SemiBold.woff2?v=3.7") format("woff2"), url("https://rsms.me/inter/font-files/Inter-SemiBold.woff2?v=3.7") format("woff");
+}
+</style>
+
+<script>
+  "use strict";
+  // PIXELMATCH START
+  // https://cdn.jsdelivr.net/npm/pixelmatch@5.3.0/index.js
+  // ******
+  const defaultOptions = {
+    threshold: 0.1, // matching threshold (0 to 1); smaller is more sensitive
+    includeAA: false, // whether to skip anti-aliasing detection
+    alpha: 0.1, // opacity of original image in diff output
+    aaColor: [255, 255, 0], // color of anti-aliased pixels in diff output
+    diffColor: [255, 0, 0], // color of different pixels in diff output
+    diffColorAlt: null, // whether to detect dark on light differences between img1 and img2 and set an alternative color to differentiate between the two
+    diffMask: false, // draw the diff over a transparent background (a mask)
+  };
+
+  function pixelmatch(img1, img2, output, width, height, options) {
+    if (
+      !isPixelData(img1) ||
+      !isPixelData(img2) ||
+      (output && !isPixelData(output))
+    )
+      throw new Error(
+        "Image data: Uint8Array, Uint8ClampedArray or Buffer expected."
+      );
+
+    if (
+      img1.length !== img2.length ||
+      (output && output.length !== img1.length)
+    )
+      throw new Error("Image sizes do not match.");
+
+    if (img1.length !== width * height * 4)
+      throw new Error("Image data size does not match width/height.");
+
+    options = Object.assign({}, defaultOptions, options);
+
+    // check if images are identical
+    const len = width * height;
+    const a32 = new Uint32Array(img1.buffer, img1.byteOffset, len);
+    const b32 = new Uint32Array(img2.buffer, img2.byteOffset, len);
+    let identical = true;
+
+    for (let i = 0; i < len; i++) {
+      if (a32[i] !== b32[i]) {
+        identical = false;
+        break;
+      }
+    }
+    if (identical) {
+      // fast path if identical
+      if (output && !options.diffMask) {
+        for (let i = 0; i < len; i++)
+          drawGrayPixel(img1, 4 * i, options.alpha, output);
+      }
+      return 0;
+    }
+
+    // maximum acceptable square distance between two colors;
+    // 35215 is the maximum possible value for the YIQ difference metric
+    const maxDelta = 35215 * options.threshold * options.threshold;
+    let diff = 0;
+
+    // compare each pixel of one image against the other one
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const pos = (y * width + x) * 4;
+
+        // squared YUV distance between colors at this pixel position, negative if the img2 pixel is darker
+        const delta = colorDelta(img1, img2, pos, pos);
+
+        // the color difference is above the threshold
+        if (Math.abs(delta) > maxDelta) {
+          // check it's a real rendering difference or just anti-aliasing
+          if (
+            !options.includeAA &&
+            (antialiased(img1, x, y, width, height, img2) ||
+              antialiased(img2, x, y, width, height, img1))
+          ) {
+            // one of the pixels is anti-aliasing; draw as yellow and do not count as difference
+            // note that we do not include such pixels in a mask
+            if (output && !options.diffMask)
+              drawPixel(output, pos, ...options.aaColor);
+          } else {
+            // found substantial difference not caused by anti-aliasing; draw it as such
+            if (output) {
+              drawPixel(
+                output,
+                pos,
+                ...((delta < 0 && options.diffColorAlt) || options.diffColor)
+              );
+            }
+            diff++;
+          }
+        } else if (output) {
+          // pixels are similar; draw background as grayscale image blended with white
+          if (!options.diffMask)
+            drawGrayPixel(img1, pos, options.alpha, output);
+        }
+      }
+    }
+
+    // return the number of different pixels
+    return diff;
+  }
+
+  function isPixelData(arr) {
+    // work around instanceof Uint8Array not working properly in some Jest environments
+    return ArrayBuffer.isView(arr) && arr.constructor.BYTES_PER_ELEMENT === 1;
+  }
+
+  // check if a pixel is likely a part of anti-aliasing;
+  // based on "Anti-aliased Pixel and Intensity Slope Detector" paper by V. Vysniauskas, 2009
+
+  function antialiased(img, x1, y1, width, height, img2) {
+    const x0 = Math.max(x1 - 1, 0);
+    const y0 = Math.max(y1 - 1, 0);
+    const x2 = Math.min(x1 + 1, width - 1);
+    const y2 = Math.min(y1 + 1, height - 1);
+    const pos = (y1 * width + x1) * 4;
+    let zeroes = x1 === x0 || x1 === x2 || y1 === y0 || y1 === y2 ? 1 : 0;
+    let min = 0;
+    let max = 0;
+    let minX, minY, maxX, maxY;
+
+    // go through 8 adjacent pixels
+    for (let x = x0; x <= x2; x++) {
+      for (let y = y0; y <= y2; y++) {
+        if (x === x1 && y === y1) continue;
+
+        // brightness delta between the center pixel and adjacent one
+        const delta = colorDelta(img, img, pos, (y * width + x) * 4, true);
+
+        // count the number of equal, darker and brighter adjacent pixels
+        if (delta === 0) {
+          zeroes++;
+          // if found more than 2 equal siblings, it's definitely not anti-aliasing
+          if (zeroes > 2) return false;
+
+          // remember the darkest pixel
+        } else if (delta < min) {
+          min = delta;
+          minX = x;
+          minY = y;
+
+          // remember the brightest pixel
+        } else if (delta > max) {
+          max = delta;
+          maxX = x;
+          maxY = y;
+        }
+      }
+    }
+
+    // if there are no both darker and brighter pixels among siblings, it's not anti-aliasing
+    if (min === 0 || max === 0) return false;
+
+    // if either the darkest or the brightest pixel has 3+ equal siblings in both images
+    // (definitely not anti-aliased), this pixel is anti-aliased
+    return (
+      (hasManySiblings(img, minX, minY, width, height) &&
+        hasManySiblings(img2, minX, minY, width, height)) ||
+      (hasManySiblings(img, maxX, maxY, width, height) &&
+        hasManySiblings(img2, maxX, maxY, width, height))
+    );
+  }
+
+  // check if a pixel has 3+ adjacent pixels of the same color.
+  function hasManySiblings(img, x1, y1, width, height) {
+    const x0 = Math.max(x1 - 1, 0);
+    const y0 = Math.max(y1 - 1, 0);
+    const x2 = Math.min(x1 + 1, width - 1);
+    const y2 = Math.min(y1 + 1, height - 1);
+    const pos = (y1 * width + x1) * 4;
+    let zeroes = x1 === x0 || x1 === x2 || y1 === y0 || y1 === y2 ? 1 : 0;
+
+    // go through 8 adjacent pixels
+    for (let x = x0; x <= x2; x++) {
+      for (let y = y0; y <= y2; y++) {
+        if (x === x1 && y === y1) continue;
+
+        const pos2 = (y * width + x) * 4;
+        if (
+          img[pos] === img[pos2] &&
+          img[pos + 1] === img[pos2 + 1] &&
+          img[pos + 2] === img[pos2 + 2] &&
+          img[pos + 3] === img[pos2 + 3]
+        )
+          zeroes++;
+
+        if (zeroes > 2) return true;
+      }
+    }
+
+    return false;
+  }
+
+  // calculate color difference according to the paper "Measuring perceived color difference
+  // using YIQ NTSC transmission color space in mobile applications" by Y. Kotsarenko and F. Ramos
+
+  function colorDelta(img1, img2, k, m, yOnly) {
+    let r1 = img1[k + 0];
+    let g1 = img1[k + 1];
+    let b1 = img1[k + 2];
+    let a1 = img1[k + 3];
+
+    let r2 = img2[m + 0];
+    let g2 = img2[m + 1];
+    let b2 = img2[m + 2];
+    let a2 = img2[m + 3];
+
+    if (a1 === a2 && r1 === r2 && g1 === g2 && b1 === b2) return 0;
+
+    if (a1 < 255) {
+      a1 /= 255;
+      r1 = blend(r1, a1);
+      g1 = blend(g1, a1);
+      b1 = blend(b1, a1);
+    }
+
+    if (a2 < 255) {
+      a2 /= 255;
+      r2 = blend(r2, a2);
+      g2 = blend(g2, a2);
+      b2 = blend(b2, a2);
+    }
+
+    const y1 = rgb2y(r1, g1, b1);
+    const y2 = rgb2y(r2, g2, b2);
+    const y = y1 - y2;
+
+    if (yOnly) return y; // brightness difference only
+
+    const i = rgb2i(r1, g1, b1) - rgb2i(r2, g2, b2);
+    const q = rgb2q(r1, g1, b1) - rgb2q(r2, g2, b2);
+
+    const delta = 0.5053 * y * y + 0.299 * i * i + 0.1957 * q * q;
+
+    // encode whether the pixel lightens or darkens in the sign
+    return y1 > y2 ? -delta : delta;
+  }
+
+  function rgb2y(r, g, b) {
+    return r * 0.29889531 + g * 0.58662247 + b * 0.11448223;
+  }
+  function rgb2i(r, g, b) {
+    return r * 0.59597799 - g * 0.2741761 - b * 0.32180189;
+  }
+  function rgb2q(r, g, b) {
+    return r * 0.21147017 - g * 0.52261711 + b * 0.31114694;
+  }
+
+  // blend semi-transparent color with white
+  function blend(c, a) {
+    return 255 + (c - 255) * a;
+  }
+  function drawPixel(output, pos, r, g, b) {
+    output[pos + 0] = r;
+    output[pos + 1] = g;
+    output[pos + 2] = b;
+    output[pos + 3] = 255;
+  }
+  function drawGrayPixel(img, i, alpha, output) {
+    const r = img[i + 0];
+    const g = img[i + 1];
+    const b = img[i + 2];
+    const val = blend(rgb2y(r, g, b), (alpha * img[i + 3]) / 255);
+    drawPixel(output, i, val, val, val);
+  }
+
+  // ***********
+  // END of PIXELMATCH
+  // ***********
+
+  // There are also 2 variables in the HTML
+  const DEFAULT_IMG_WIDTH = "400px";
+  const DEFAULT_PIXELMATCH_THRESHOLD = 0.5;
+
+  function createCanvasDefault({ height, width }) {
+    const canvas = document.createElement("canvas");
+    const canvasContext = canvas.getContext("2d");
+
+    canvas.height = height;
+    canvas.width = width;
+
+    return {  canvas, canvasContext };
+  }
+
+
+  function diff() {
+    const img1 = document.getElementById("img1");
+    const img2 = document.getElementById("img2");
+
+    // get dimension
+    const { width, height } = img1;
+    const { canvas: sourceCanvas, canvasContext: sourceCanvasContext } = createCanvasDefault({ height, width });
+    
+    // draw source image inside a canvas pixel processing
+    sourceCanvasContext.drawImage(img1, 0, 0, width, height);
+
+    const { canvas: targetCanvas, canvasContext: targetCanvasContext } = createCanvasDefault({ height, width });
+
+    // Resize target image node to match that of source image node
+    targetCanvasContext.drawImage(img2, 0, 0, width, height);
+    const resizedImage = targetCanvas.toDataURL();
+
+    img2.src = resizedImage;
+
+    const {canvas: diffCanvas, canvasContext: diffCanvasContext} = createCanvasDefault({ height, width });
+    const emptyCanvas = diffCanvasContext.createImageData(width, height);
+    const sourceImage = sourceCanvasContext.getImageData(0, 0, width, height);
+    const targetImage = targetCanvasContext.getImageData(0, 0, width, height);
+    const num = pixelmatch(
+      sourceImage.data,
+      targetImage.data,
+      emptyCanvas.data,
+      width,
+      height,
+      { threshold: DEFAULT_PIXELMATCH_THRESHOLD }
+    );
+    diffCanvasContext.putImageData(emptyCanvas, 0, 0);
+    document.getElementById(
+      "pixel-difference"
+    ).textContent = `Pixel Difference: ${num}`;
+    const outputImg = document.createElement("img");
+    outputImg.src = diffCanvas.toDataURL();
+    outputImg.style.maxWidth = DEFAULT_IMG_WIDTH;
+    document.getElementById("output-img").appendChild(outputImg);
+  }
+
+  function addImage(context) {
+    const reader = new FileReader();
+    reader.readAsDataURL(context.files[0]);
+    reader.onload = function () {
+      const base64Uri = reader.result;
+      const img = document.createElement("img");
+      img.id = "img1";
+      img.src = base64Uri;
+      img.style.maxWidth = DEFAULT_IMG_WIDTH;
+      document.getElementById("target-img").appendChild(img);
+      parent.postMessage({ pluginMessage: { "img-added": base64Uri } }, "*");
+    };
+  }
+  function dataURLtoUint8Array(dataURL) {
+    // Remove the prefix (e.g., "data:image/png;base64,") from the data URL
+    const base64 = dataURL.split(",")[1];
+
+    // Decode the base64 string to get a binary string
+    const binaryString = atob(base64);
+
+    // Create a Uint8Array from the binary string
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return bytes;
+  }
+  function uint8ArrayToBase64(uint8Array) {
+    const blob = new Blob([uint8Array], { type: "application/octet-binary" });
+    const reader = new FileReader();
+
+    return new Promise((resolve, reject) => {
+      reader.onload = (event) => {
+        const dataUrl = event.target.result;
+        resolve(dataUrl); // Split off the data URL prefix to get just the Base64 content
+      };
+      reader.onerror = (error) => {
+        reject(error);
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+  function setSourceImg(message) {
+    uint8ArrayToBase64(message.img).then((dataUrl) => {
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.id = "img2";
+      img.style.maxWidth = DEFAULT_IMG_WIDTH;
+      document.getElementById("source-img").appendChild(img);
+    });
+  }
+  function quit() {
+    parent.postMessage({ pluginMessage: { type: "quit" } }, "*");
+  }
+  function init() {
+    onmessage = (event) => {
+      let message = event.data.pluginMessage;
+
+      if (message.type === "selection-data") {
+        setSourceImg(message);
+      }
+    };
+  }
+  init();
+</script>
